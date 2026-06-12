@@ -2,26 +2,48 @@
 Ply Tensor — Tensor class with reverse-mode autodiff + GPU backend.
 Uses backend.py for pluggable array backends (NumPy/CuPy/MLX).
 Every tensor is a node in a static computation graph.
+
+v2.0 — adds:
+  - detach() — strip backward graph, return leaf with same data
+  - is_param — mark tensors as learnable parameters
+  - zero_grad on parameters only (not full graph recursion)
+  - inplace update helpers for parameter mutation
+  - dtypes: float32 (default), float16, float64
 """
 import numpy as np
-from typing import List, Optional, Callable, Any, Tuple
+from typing import List, Optional, Callable, Any, Tuple, Dict
 from backend import (_asarray, _randn, _zeros, _ones, _zeros_like, _ones_like,
                       _maximum, _where, _broadcast_to, _concatenate, _stack,
                       _transpose, _reshape, _einsum, _expand_dims,
                       _put_along_axis, _argmax, _argmin, _argsort, _swapaxes)
 
+DTYPE_MAP: Dict[str, type] = {
+    'float32': np.float32,
+    'float16': np.float16,
+    'float64': np.float64,
+    'int32': np.int32,
+    'int64': np.int64,
+    'bool': np.bool_,
+}
+
 
 class Tensor:
-    __slots__ = ('data', 'grad', '_backward', '_inputs', '_op', '_ctx', '_shape')
+    __slots__ = ('data', 'grad', '_backward', '_inputs', '_op', '_ctx',
+                 '_shape', '_dtype_str', 'is_param', 'name')
 
-    def __init__(self, data, _inputs=(), _op='', _backward=None, _ctx=None):
-        self.data = _asarray(data, dtype=np.float32)
+    def __init__(self, data, _inputs=(), _op='', _backward=None, _ctx=None,
+                 dtype='float32', is_param=False, name=''):
+        target_dtype = DTYPE_MAP.get(dtype, np.float32)
+        self.data = _asarray(data, dtype=target_dtype)
         self.grad: Optional[Any] = None
         self._backward: Optional[Callable[[], None]] = _backward
         self._inputs: List[Tensor] = list(_inputs)
         self._op: str = _op
         self._ctx: Any = _ctx
         self._shape: Tuple[int, ...] = self.data.shape
+        self._dtype_str: str = dtype
+        self.is_param: bool = is_param
+        self.name: str = name
 
     @property
     def shape(self):
@@ -30,6 +52,10 @@ class Tensor:
     @property
     def dtype(self):
         return self.data.dtype
+
+    @property
+    def dtype_str(self) -> str:
+        return self._dtype_str
 
     @property
     def ndim(self):
@@ -44,14 +70,54 @@ class Tensor:
         return self.permute(*reversed(range(self.ndim)))
 
     def __repr__(self):
-        return f"Tensor(shape={self.shape}, op={self._op})"
+        pfx = f"Param({self.name}, " if self.is_param and self.name else (
+            "Param(" if self.is_param else "")
+        suf = ")" if self.is_param else ""
+        return f"{pfx}shape={self.shape} op={self._op}{suf}"
+
+    # ── Graph management ───────────────────────────────────
+
+    def detach(self) -> 'Tensor':
+        """Return a new leaf tensor with same data, no backward graph."""
+        t = Tensor(self.data.copy(), _op='detach', dtype=self._dtype_str,
+                   is_param=self.is_param, name=self.name)
+        if self.grad is not None:
+            t.grad = self.grad.copy()
+        return t
+
+    def clone(self) -> 'Tensor':
+        """Deep copy with graph intact."""
+        t = Tensor(self.data.copy(), _inputs=list(self._inputs),
+                   _op=self._op, _backward=self._backward, _ctx=self._ctx,
+                   dtype=self._dtype_str, is_param=self.is_param, name=self.name)
+        if self.grad is not None:
+            t.grad = self.grad.copy()
+        return t
+
+    def new_like(self, data=None, **kwargs) -> 'Tensor':
+        """Create tensor with same metadata, optionally different data."""
+        d = data if data is not None else self.data.copy()
+        return Tensor(d, dtype=self._dtype_str, is_param=self.is_param,
+                      name=self.name, **kwargs)
+
+    @property
+    def is_leaf(self) -> bool:
+        return len(self._inputs) == 0
 
     # ── Gradient flow ─────────────────────────────────────
 
     def zero_grad(self):
+        """Zero gradient for this tensor and all parameter inputs."""
         self.grad = None
         for inp in self._inputs:
-            inp.zero_grad()
+            if inp.is_param:
+                inp.grad = None
+
+    def zero_grad_all(self):
+        """Zero gradient recursively through entire graph (legacy)."""
+        self.grad = None
+        for inp in self._inputs:
+            inp.zero_grad_all()
 
     @staticmethod
     def _acc_grad(tensor, value):
@@ -93,6 +159,32 @@ class Tensor:
         if self.grad is None:
             self.grad = _zeros_like(self.data)
         return self.grad
+
+    # ── In-place data mutation (for optimizer updates) ────
+
+    def data_add_(self, delta):
+        """In-place add to .data (for optimizer updates). Detaches graph."""
+        self.data += delta
+        self._inputs = []
+        self._backward = None
+        self._op = 'updated'
+        self._ctx = None
+
+    def data_sub_(self, delta):
+        """In-place subtract from .data."""
+        self.data -= delta
+        self._inputs = []
+        self._backward = None
+        self._op = 'updated'
+        self._ctx = None
+
+    def data_mul_(self, factor):
+        """In-place multiply .data."""
+        self.data *= factor
+        self._inputs = []
+        self._backward = None
+        self._op = 'updated'
+        self._ctx = None
 
     # ── Operator overloads ─────────────────────────────────
 
@@ -270,7 +362,7 @@ def tensor_relu(t: Tensor) -> Tensor:
 
 def tensor_gelu(t: Tensor) -> Tensor:
     x = t.data
-    sqrt_2_pi = np.float32(0.7978845608)  # sqrt(2/pi)
+    sqrt_2_pi = np.float32(0.7978845608)
     inner = sqrt_2_pi * (x + np.float32(0.044715) * x ** 3)
     tanh_inner = np.tanh(inner)
     out = Tensor(np.float32(0.5) * x * (1 + tanh_inner), (t,), 'gelu', _ctx=(x, tanh_inner))
@@ -424,3 +516,17 @@ def tensor_einsum(spec: str, *tensors: Tensor) -> Tensor:
             except (ValueError, Exception):
                 pass
     out._backward = _bw; return out
+
+
+# ── Parameter factory ────────────────────────────────────
+
+def param(data, name='', dtype='float32') -> Tensor:
+    """Create a learnable parameter tensor."""
+    return Tensor(data, _op='param', is_param=True, name=name, dtype=dtype)
+
+
+def _param_like(template: Tensor, name='') -> Tensor:
+    """Create a parameter with same shape/dtype as template."""
+    return Tensor(np.zeros(template.shape, dtype=template.data.dtype),
+                  _op='param', is_param=True, name=name,
+                  dtype=template._dtype_str)

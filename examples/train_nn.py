@@ -5,7 +5,7 @@ Model: X -> Linear(1->16) -> ReLU -> Linear(16->1)
 Loss: MSE
 """
 import sys
-sys.path.insert(0, '/home/peter/ply')
+import os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 from tensor import Tensor, tensor_relu
 

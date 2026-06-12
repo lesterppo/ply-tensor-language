@@ -4,7 +4,7 @@ train_linreg.py — Train linear regression using Ply gradients.
 Demonstrates: forward pass in Ply → gradient in Ply → update in Python.
 """
 import sys
-sys.path.insert(0, '/home/peter/ply')
+import os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 from tensor import Tensor
 from runtime import run
