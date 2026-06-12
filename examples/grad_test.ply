@@ -1,0 +1,21 @@
+-- grad_test.ply — Verify autodiff through Ply
+-- Simple linear regression: loss = mean((X*W - Y)^2)
+-- d(loss)/dW should be 2*X*(X*W - Y)/N
+
+-- Data: X=[1,2,3], Y=[2,4,6] — linear relationship Y=2X
+X := reshape(arange(1, 4), 3, 1)   -- column vector [1,2,3]
+Y := reshape(arange(2, 8, 2), 3, 1) -- [2,4,6]
+
+-- Parameter: W is a scalar (1x1)
+W := ones(1, 1)                    -- start at 1.0
+
+-- Forward pass
+pred := X @ W                      -- shape: (3,1)
+diff := pred - Y                   -- residuals
+sq := diff * diff                  -- squared
+loss := mean(sq)                   -- MSE = ((1*1-2)^2 + (2*1-4)^2 + (3*1-6)^2)/3
+
+-- Compute gradient
+dW := grad(loss, W)
+
+loss

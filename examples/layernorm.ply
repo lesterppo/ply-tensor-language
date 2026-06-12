@@ -1,0 +1,33 @@
+-- layernorm.ply — Layer Normalization
+-- The normalization that made Transformer training possible.
+-- 
+-- LayerNorm(x) = (x - mean) / std * gamma + beta
+-- Applied across the last dimension.
+
+-- Input tensor: (batch, seq_len, d_model)
+batch := 2
+seq_len := 6
+d_model := 128
+
+X := randn(batch, seq_len, d_model)
+
+-- Learnable parameters (initialized to 1 and 0)
+gamma := ones(d_model)
+beta := zeros(d_model)
+
+-- Compute mean and std along last axis, keep dims for broadcasting
+mean_x := mean(X, -1)
+mean_x_r := reshape(mean_x, batch, seq_len, 1)    -- restore dim for broadcast
+var_x := mean((X - mean_x_r) * (X - mean_x_r), -1)
+var_x_r := reshape(var_x, batch, seq_len, 1)
+std_x := sqrt(var_x_r + 1e-5)
+
+-- Normalize: center and scale
+X_centered := X - mean_x_r
+X_normalized := X_centered / std_x
+
+-- Apply learnable affine transform
+-- gamma and beta broadcast from (d_model) -> (batch, seq_len, d_model)
+output := X_normalized * gamma + beta
+
+output

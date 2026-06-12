@@ -1,0 +1,28 @@
+-- linreg.ply — Linear regression forward pass + gradient
+-- Given X, Y, compute MSE loss and gradient dloss/dW
+-- The training loop (update W := W - lr*dW) is handled by host.
+
+-- Generate synthetic data: Y = 3*X + noise
+N := 100
+X := randn(N, 1)
+true_W := 3.0
+noise := randn(N, 1) * 0.1
+Y := X * true_W + noise
+
+-- Initialize weights
+W := randn(1, 1) * 0.1
+b := zeros(1)
+
+-- Forward pass: pred = X @ W + b
+pred := X @ W + b
+
+-- MSE loss
+diff := pred - Y
+loss := mean(diff * diff)
+
+-- Gradients
+dW := grad(loss, W)
+db := grad(loss, b)
+
+-- Return the initial loss (host will iterate from here)
+loss

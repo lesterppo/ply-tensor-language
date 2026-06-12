@@ -1,0 +1,11 @@
+# Ply — Tensor-Native Language
+#
+# Setup for Hermes agents:
+#   cd /home/peter/ply && python3 ply.py examples/attention.ply
+#
+# Requirements: Python 3.11+, NumPy
+# Optional GPU: pip install cupy  (auto-detected)
+
+__pycache__/
+*.pyc
+.venv/

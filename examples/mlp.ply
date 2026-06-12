@@ -1,0 +1,41 @@
+-- mlp.ply — Multi-Layer Perceptron
+-- The feedforward block from Transformer architectures.
+-- 2-layer MLP with GELU activation and residual connection.
+--
+-- Architecture: input -> Linear(d->4d) -> GELU -> Linear(4d->d) -> output
+-- This pattern repeats in every transformer layer.
+
+-- Dimensions
+batch := 4
+d_model := 256
+d_ff := 1024    -- 4x expansion
+
+-- Input (simulated hidden states)
+X := randn(batch, d_model)
+
+-- Layer 1: expand to d_ff
+W1 := randn(d_model, d_ff)
+b1 := zeros(d_ff)
+h1 := X @ W1 + b1
+
+-- GELU activation (the transformer standard)
+a1 := gelu(h1)
+
+-- Layer 2: project back to d_model
+W2 := randn(d_ff, d_model)
+b2 := zeros(d_model)
+h2 := a1 @ W2 + b2
+
+-- Dropout simulation: random binary mask scaled by keep_prob
+keep_prob := 0.9
+noise := randn(batch, d_model)
+dropout_mask := noise > (keep_prob - 1.0)   -- ~90% ones
+h2_dropped := h2 * dropout_mask / keep_prob
+
+-- Layer normalization
+h2_norm := layernorm(h2_dropped)
+
+-- Residual connection
+output := h2_norm + X
+
+output

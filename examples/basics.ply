@@ -1,0 +1,49 @@
+-- basics.ply — Fundamental tensor-native operations
+-- Everything is a tensor. No loops, no if/else, no variables.
+
+-- Creating tensors from scratch
+A := randn(3, 4)
+B := ones(3, 4)
+C := zeros(2, 8)
+
+-- Element-wise arithmetic (broadcasting is automatic)
+D := A * 2.0 + 0.5
+E := A / B
+
+-- Matrix multiplication
+W := randn(4, 2)
+F := A @ W
+
+-- Non-linear activations
+G := relu(A)
+H := sigmoid(A)
+I := tanh(A)
+
+-- Reductions
+s := sum(A)
+m := mean(A)
+col_max := max(A, 0)
+row_min := min(A, 1)
+
+-- Slicing and reshaping
+top_left := A[0:2, 0:2]
+flattened := reshape(A, 12)
+transposed := A.T
+
+-- Element-wise comparisons produce boolean tensors
+mask := A > 0
+pos_count := sum(mask)
+
+-- Ternary: the only 'conditional' in Ply
+-- Think of it as: mask ? value_if_true : value_if_false
+J := mask ? A : -1.0
+
+-- Chaining operations
+K := relu(A @ W)
+L := softmax(K, -1)
+
+-- Concatenation
+M := concat(A, B, 0)
+
+-- Result
+L

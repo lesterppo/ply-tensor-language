@@ -1,0 +1,58 @@
+-- hmtl.ply — Hardware-Mapped Tensor Layout operator
+-- Generates a 128x128 FP8-style weight matrix for tensor core dispatch.
+-- This is the kind of output the prompt in llm.txt was designed to elicit:
+-- a fully populated SRAM preload weight grid for microkernel actuation.
+
+-- Tensor core grid dimensions (physical hardware execution block)
+grid := 128
+
+-- Create structured weight patterns using tensor-native composition
+
+-- D1: Topology axis — maps physical cores, cache lines, NUMA affinity
+-- Diagonal-dominant structure simulates local-core affinity
+D1_diag := eye(grid)
+D1_noise := randn(grid, grid) * 0.01
+D1 := D1_diag + D1_noise
+
+-- D2: Task flow axis — cosine similarity between thread descriptors
+-- Block-sparse pattern: only first 32 columns active (simulates thread groups)
+D2_base := randn(grid, grid)
+D2_mask := reshape(arange(0, 128), 128, 1) < 32.0
+D2 := D2_base * D2_mask
+
+-- D3: Resource manifold — saturation density of page frames and io_uring queues
+-- Low-frequency wave pattern across rows
+freq := 6.28318 / 128.0           -- 2*pi / grid
+row_ids := reshape(arange(0, 128), 128, 1)
+D3 := sin(row_ids * freq)
+
+-- D4: Dynamic swapping — execution stride intervals for PagedTensor scheduling
+-- Banded matrix: energy concentrated near diagonal with exponential decay
+col_ids := reshape(arange(0, 128), 1, 128)
+distance := abs(row_ids - col_ids)
+D4 := exp(-distance / 16.0) * randn(grid, grid)
+
+-- Combine all axes into unified tensor operator
+alpha := 0.4       -- topology weight
+beta := 0.2        -- task flow weight
+gamma := 0.1      -- resource manifold weight
+delta := 0.3      -- dynamic swapping weight
+
+weights := alpha * D1 + beta * D2 + gamma * D3 + delta * D4
+
+-- Normalize to FP8 range [-1.0, 1.0]
+w_max_abs := max(abs(weights))
+normalized := weights / (w_max_abs + 1e-8)
+
+-- Clip and apply Hadamard filter mask
+threshold := 0.025
+mask := abs(normalized) > threshold
+filtered := mask ? normalized : 0.0
+
+-- Print key metrics
+s := sum(filtered)
+nnz := sum(mask)
+sparsity := 1.0 - nnz / (grid * grid)
+
+-- Final SRAM preload weight matrix
+filtered

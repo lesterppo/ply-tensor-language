@@ -1,0 +1,73 @@
+-- attention.ply — Scaled Dot-Product Attention
+-- The core operation of every Transformer model.
+-- No loops. No if/else. Pure tensor geometry.
+--
+-- Concept:
+--   Attention(Q, K, V) = softmax(Q @ K.T / sqrt(d_k)) @ V
+--
+-- This is what GPT, Claude, and every modern LLM runs
+-- billions of times per forward pass.
+
+-- Hyperparameters (simulated with 2 heads, seq_len=8, d_model=64)
+seq_len := 8
+d_model := 64
+d_k := 32     -- dim per head
+d_v := 32
+num_heads := 2
+
+-- Input: random sequence embeddings
+X := randn(seq_len, d_model)
+
+-- Weight matrices for multi-head projection
+W_Q := randn(d_model, d_k * num_heads)
+W_K := randn(d_model, d_k * num_heads)
+W_V := randn(d_model, d_v * num_heads)
+W_O := randn(d_v * num_heads, d_model)
+
+-- Project to Q, K, V
+Q := X @ W_Q
+K := X @ W_K
+V := X @ W_V
+
+-- Reshape to multi-head: (seq_len, num_heads, d_k)
+Q_heads := reshape(Q, seq_len, num_heads, d_k)
+K_heads := reshape(K, seq_len, num_heads, d_k)
+V_heads := reshape(V, seq_len, num_heads, d_v)
+
+-- Transpose for batched matmul: (num_heads, seq_len, d_k)
+Qh := permute(Q_heads, 1, 0, 2)
+Kh := permute(K_heads, 1, 0, 2)
+Vh := permute(V_heads, 1, 0, 2)
+
+-- Compute attention scores: Q @ K^T
+-- For each head: (seq_len, d_k) @ (d_k, seq_len) -> (seq_len, seq_len)
+-- With batches: (num_heads, seq_len, d_k) @ (num_heads, d_k, seq_len)
+Kh_T := permute(Kh, 0, 2, 1)
+scores := Qh @ Kh_T
+
+-- Scale by sqrt(d_k)
+scale := sqrt(d_k)
+scaled := scores / scale
+
+-- Softmax over the key dimension (last axis)
+attn_weights := softmax(scaled, -1)
+
+-- Apply attention to values
+-- (num_heads, seq_len, seq_len) @ (num_heads, seq_len, d_v) -> (num_heads, seq_len, d_v)
+head_outputs := attn_weights @ Vh
+
+-- Concatenate heads back
+head_outputs_t := permute(head_outputs, 1, 0, 2)
+concat_heads := reshape(head_outputs_t, seq_len, num_heads * d_v)
+
+-- Output projection
+output := concat_heads @ W_O
+
+-- Layer norm (simplified)
+normalized := layernorm(output)
+
+-- Residual connection
+final := normalized + X
+
+-- Result shape should be (seq_len, d_model) = (8, 64)
+final
