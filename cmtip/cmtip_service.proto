@@ -1,0 +1,126 @@
+// CMTIP Bus gRPC Service Definition
+// Cross-Model Tensor Interoperability Protocol — deployable bus
+//
+// Architecture:
+//   gRPC for control-plane ops (register, train, query)
+//   WebSocket for data-plane streaming (live tensor conversation)
+//   Redis pub/sub for multi-agent broadcast (future)
+
+syntax = "proto3";
+
+package cmtip;
+
+// ─── Core Messages ──────────────────────────────────────────────────────────
+
+// A tensor packet — the atomic unit of LLM-native communication.
+// Replaces a text "message" with its embedding vector.
+message TensorPacket {
+  string source_id = 1;       // Model identifier (e.g. "all-MiniLM-L6-v2")
+  string target_id = 2;       // Target model or "broadcast"
+  int32 seq_num = 3;          // Monotonic sequence number
+  double timestamp = 4;       // Unix timestamp
+  bytes tensor = 5;           // Raw float32 tensor payload (little-endian)
+  repeated int32 shape = 6;   // Tensor dimensions
+  int32 dtype = 7;            // 0=FP32, 1=FP16, 2=INT8, 3=BF16
+  repeated string concept_tags = 8;   // Semantic labels
+  float confidence = 9;       // Model's confidence [0,1]
+  int32 reply_to_seq = 10;    // Sequence number this replies to (-1 if none)
+}
+
+// Register a model on the bus.
+message RegisterModelRequest {
+  string model_id = 1;           // Unique model identifier
+  int32 dim = 2;                 // Embedding dimension
+  string backend_type = 3;       // "sentence_transformer" | "openai" | "synthetic"
+  string backend_config = 4;     // JSON config for the backend (e.g. model name, API key)
+}
+
+message RegisterModelResponse {
+  bool success = 1;
+  string error = 2;
+  int32 registered_dim = 3;      // Actual dim of the registered model
+}
+
+// Send a text message through the bus (auto-embeds on source, projects to target).
+message SendTextRequest {
+  string source_id = 1;
+  string target_id = 2;
+  string text = 3;
+  repeated string concept_tags = 4;
+}
+
+message SendTextResponse {
+  TensorPacket packet = 1;
+  bool penalty_triggered = 2;
+  float target_entropy = 3;
+}
+
+// Send a raw tensor (already embedded).
+message SendTensorRequest {
+  string source_id = 1;
+  string target_id = 2;
+  bytes tensor = 3;
+  repeated int32 shape = 4;
+  repeated string concept_tags = 5;
+  float confidence = 6;
+}
+
+message SendTensorResponse {
+  TensorPacket packet = 1;
+  bool penalty_triggered = 2;
+  float target_entropy = 3;
+}
+
+// Train a cross-model adapter.
+message TrainAdapterRequest {
+  string source_id = 1;
+  string target_id = 2;
+  repeated string source_texts = 3;   // Paired training data
+  repeated string target_texts = 4;   // Same semantics, different model
+}
+
+message TrainAdapterResponse {
+  float mse = 1;               // Training mean squared error
+  int32 num_pairs = 2;
+  bool saved = 3;
+  string adapter_path = 4;
+}
+
+// Query the conversation history.
+message GetConversationRequest {
+  int32 limit = 1;             // Max packets to return (default: 20)
+}
+
+message GetConversationResponse {
+  repeated TensorPacket packets = 1;
+  int32 total_packets = 2;
+}
+
+// Health / status check.
+message StatusRequest {}
+
+message StatusResponse {
+  int32 registered_models = 1;
+  int32 trained_adapters = 2;
+  int32 total_conversations = 3;
+  repeated string model_ids = 4;
+  float penalty_threshold = 5;
+}
+
+// ─── Service Definition ────────────────────────────────────────────────────
+
+service CmtipBus {
+  // Control plane
+  rpc RegisterModel(RegisterModelRequest) returns (RegisterModelResponse);
+  rpc TrainAdapter(TrainAdapterRequest) returns (TrainAdapterResponse);
+  rpc GetConversation(GetConversationRequest) returns (GetConversationResponse);
+  rpc GetStatus(StatusRequest) returns (StatusResponse);
+
+  // Data plane
+  rpc SendText(SendTextRequest) returns (SendTextResponse);
+  rpc SendTensor(SendTensorRequest) returns (SendTensorResponse);
+
+  // Bidirectional streaming conversation
+  // Two models can connect and exchange tensor packets in real time.
+  rpc Subscribe(stream TensorPacket) returns (stream TensorPacket);
+}

@@ -452,21 +452,30 @@ class Runtime:
         right = self._eval_expr(node.right)
 
         op = node.op
-        if op == '+':   return left + right
-        elif op == '-': return left - right
-        elif op == '*': return left * right
-        elif op == '/': return left / right
-        elif op == '@': return left @ right
-        elif op == '>': return left > right
-        elif op == '<': return left < right
-        elif op == '>=': return left >= right
-        elif op == '<=': return left <= right
-        elif op == '==': return left == right
-        elif op == '!=': return left != right
-        elif op == '&': return left & right
-        elif op == '|': return left | right
-        else:
-            raise PlyRuntimeError(f"Unknown operator: {op}")
+        try:
+            if op == '+':   return left + right
+            elif op == '-': return left - right
+            elif op == '*': return left * right
+            elif op == '/': return left / right
+            elif op == '@': return left @ right
+            elif op == '>': return left > right
+            elif op == '<': return left < right
+            elif op == '>=': return left >= right
+            elif op == '<=': return left <= right
+            elif op == '==': return left == right
+            elif op == '!=': return left != right
+            elif op == '&': return left & right
+            elif op == '|': return left | right
+            else:
+                raise PlyRuntimeError(f"Unknown operator: {op}")
+        except ValueError as e:
+            lhs = getattr(left, 'shape', '?')
+            rhs = getattr(right, 'shape', '?')
+            raise PlyRuntimeError(
+                f"Shape mismatch: {lhs} {op} {rhs} cannot broadcast.\n"
+                f"  Hint: use mean(x, dim) which keeps dims, or reshape to match.\n"
+                f"  numpy error: {e}"
+            ) from e
 
     def _eval_unop(self, node: UnOp):
         operand = self._eval_expr(node.operand)
@@ -479,7 +488,16 @@ class Runtime:
 
     def _eval_call(self, node: Call):
         if node.name not in BUILTINS:
-            raise PlyRuntimeError(f"Unknown function: '{node.name}'")
+            # Suggest similar function names
+            from difflib import get_close_matches
+            matches = get_close_matches(node.name, list(BUILTINS.keys()), n=3, cutoff=0.4)
+            hint = f"  Did you mean: {', '.join(matches)}?" if matches else ""
+            raise PlyRuntimeError(
+                f"Unknown function: '{node.name}'.{hint}\n"
+                f"  Available: relu, sigmoid, tanh, softmax, log, exp, sqrt, gelu,\n"
+                f"             sum, mean, randn, zeros, ones, param, broadcast,\n"
+                f"             reshape, permute, concat, stack, einsum"
+            )
         fn = BUILTINS[node.name]
         args = [self._eval_expr(a) for a in node.args]
         return fn(self, *args)

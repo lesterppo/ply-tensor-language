@@ -291,7 +291,11 @@ class Tensor:
     def mean(self, dim=None):
         if dim is not None:
             n = self.shape[dim]
-            return (self.sum(dim=dim)).__truediv__(_ensure_tensor(float(n)))
+            result = (self.sum(dim=dim)).__truediv__(_ensure_tensor(float(n)))
+            # Keep dims for broadcasting: (4,64).mean(1) → (4,1) not (4,)
+            new_shape = list(result.shape)
+            new_shape.insert(dim, 1)
+            return result.reshape(*new_shape)
         else:
             return (self.sum()).__truediv__(_ensure_tensor(float(self.size)))
 
